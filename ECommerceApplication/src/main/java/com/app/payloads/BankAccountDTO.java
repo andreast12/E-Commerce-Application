@@ -7,10 +7,9 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class PaymentDTO {
-	private Long paymentId;
-	private String paymentMethod;
+public class BankAccountDTO {
+	private Long bankAccountId;
 	private String bankName;
 	private String accountNumber;
-
+	private String accountHolderName;
 }

@@ -13,17 +13,20 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
+import com.app.entites.BankAccount;
 import com.app.entites.Cart;
 import com.app.entites.CartItem;
 import com.app.entites.Order;
 import com.app.entites.OrderItem;
 import com.app.entites.Payment;
 import com.app.entites.Product;
+import com.app.payloads.PromoCodeDTO;
 import com.app.exceptions.APIException;
 import com.app.exceptions.ResourceNotFoundException;
 import com.app.payloads.OrderDTO;
 import com.app.payloads.OrderItemDTO;
 import com.app.payloads.OrderResponse;
+import com.app.repositories.BankAccountRepo;
 import com.app.repositories.CartItemRepo;
 import com.app.repositories.CartRepo;
 import com.app.repositories.OrderItemRepo;
@@ -56,6 +59,12 @@ public class OrderServiceImpl implements OrderService {
 	public CartItemRepo cartItemRepo;
 
 	@Autowired
+	public BankAccountRepo bankAccountRepo;
+
+	@Autowired
+	public PromoCodeService promoCodeService;
+
+	@Autowired
 	public UserService userService;
 
 	@Autowired
@@ -65,7 +74,7 @@ public class OrderServiceImpl implements OrderService {
 	public ModelMapper modelMapper;
 
 	@Override
-	public OrderDTO placeOrder(String email, Long cartId, String paymentMethod) {
+	public OrderDTO placeOrder(String email, Long cartId, String bankName, String promoCode) {
 
 		Cart cart = cartRepo.findCartByEmailAndCartId(email, cartId);
 
@@ -73,17 +82,43 @@ public class OrderServiceImpl implements OrderService {
 			throw new ResourceNotFoundException("Cart", "cartId", cartId);
 		}
 
+		List<CartItem> cartItems = cart.getCartItems();
+
+		if (cartItems.size() == 0) {
+			throw new APIException("Cart is empty");
+		}
+
+		// Validate bank name
+		BankAccount bankAccount = bankAccountRepo.findByBankName(bankName);
+
+		if (bankAccount == null) {
+			throw new ResourceNotFoundException("BankAccount", "bankName", bankName);
+		}
+
+		// Validate promo code if provided
+		PromoCodeDTO promoCodeDTO = null;
+
+		if (promoCode != null && !promoCode.isEmpty()) {
+			promoCodeDTO = promoCodeService.validatePromoCode(promoCode);
+		}
+
 		Order order = new Order();
 
 		order.setEmail(email);
 		order.setOrderDate(LocalDate.now());
-
-		order.setTotalAmount(cart.getTotalPrice());
 		order.setOrderStatus("Order Accepted !");
 
+		if (promoCodeDTO != null) {
+			order.setPromoCode(promoCodeDTO.getCode());
+			order.setPromoDiscount(promoCodeDTO.getDiscountPercentage());
+		}
+
+		// Create payment with bank transfer details
 		Payment payment = new Payment();
 		payment.setOrder(order);
-		payment.setPaymentMethod(paymentMethod);
+		payment.setPaymentMethod("BANK_TRANSFER");
+		payment.setBankName(bankAccount.getBankName());
+		payment.setAccountNumber(bankAccount.getAccountNumber());
 
 		payment = paymentRepo.save(payment);
 
@@ -91,25 +126,36 @@ public class OrderServiceImpl implements OrderService {
 
 		Order savedOrder = orderRepo.save(order);
 
-		List<CartItem> cartItems = cart.getCartItems();
-
-		if (cartItems.size() == 0) {
-			throw new APIException("Cart is empty");
-		}
-
 		List<OrderItem> orderItems = new ArrayList<>();
+		double totalAmount = 0;
 
 		for (CartItem cartItem : cartItems) {
 			OrderItem orderItem = new OrderItem();
 
 			orderItem.setProduct(cartItem.getProduct());
 			orderItem.setQuantity(cartItem.getQuantity());
-			orderItem.setDiscount(cartItem.getDiscount());
-			orderItem.setOrderedProductPrice(cartItem.getProductPrice());
 			orderItem.setOrder(savedOrder);
+
+			if (promoCodeDTO != null) {
+				// With promo: recalculate from original product price
+				double originalPrice = cartItem.getProduct().getPrice();
+				double discountPercent = promoCodeDTO.getDiscountPercentage();
+				double orderedProductPrice = originalPrice - (discountPercent / 100.0 * originalPrice);
+
+				orderItem.setDiscount(discountPercent);
+				orderItem.setOrderedProductPrice(orderedProductPrice);
+			} else {
+				// Without promo: use existing cart item price (product discount already applied)
+				orderItem.setDiscount(cartItem.getDiscount());
+				orderItem.setOrderedProductPrice(cartItem.getProductPrice());
+			}
+
+			totalAmount += orderItem.getOrderedProductPrice() * orderItem.getQuantity();
 
 			orderItems.add(orderItem);
 		}
+
+		savedOrder.setTotalAmount(totalAmount);
 
 		orderItems = orderItemRepo.saveAll(orderItems);
 
@@ -124,7 +170,7 @@ public class OrderServiceImpl implements OrderService {
 		});
 
 		OrderDTO orderDTO = modelMapper.map(savedOrder, OrderDTO.class);
-		
+
 		orderItems.forEach(item -> orderDTO.getOrderItems().add(modelMapper.map(item, OrderItemDTO.class)));
 
 		return orderDTO;

@@ -45,4 +45,7 @@ public class Order {
 	
 	private Double totalAmount;
 	private String orderStatus;
+
+	private String promoCode;
+	private Double promoDiscount;
 }
