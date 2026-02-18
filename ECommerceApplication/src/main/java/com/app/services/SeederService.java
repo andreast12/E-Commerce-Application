@@ -27,6 +27,7 @@ import com.app.repositories.PaymentRepo;
 import com.app.repositories.ProductRepo;
 import com.app.repositories.RoleRepo;
 import com.app.repositories.UserRepo;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 @Service
 public class SeederService {
@@ -40,10 +41,12 @@ public class SeederService {
     private final OrderItemRepo orderItemRepo;
     private final PaymentRepo paymentRepo;
     private final AddressRepo addressRepo;
+    private final com.app.repositories.MembershipRepo membershipRepo;
+    private final PasswordEncoder passwordEncoder;
 
     public SeederService(RoleRepo roleRepo, CategoryRepo categoryRepo, ProductRepo productRepo, UserRepo userRepo,
             CartRepo cartRepo, OrderRepo orderRepo, OrderItemRepo orderItemRepo, PaymentRepo paymentRepo,
-            AddressRepo addressRepo) {
+            AddressRepo addressRepo, com.app.repositories.MembershipRepo membershipRepo, PasswordEncoder passwordEncoder) {
         this.roleRepo = roleRepo;
         this.categoryRepo = categoryRepo;
         this.productRepo = productRepo;
@@ -53,15 +56,17 @@ public class SeederService {
         this.orderItemRepo = orderItemRepo;
         this.paymentRepo = paymentRepo;
         this.addressRepo = addressRepo;
+        this.membershipRepo = membershipRepo;
+        this.passwordEncoder = passwordEncoder;
     }
 
     @Transactional
     public String seedDatabase() {
         // roles
         if (roleRepo.count() == 0) {
-            Role userRole = new Role(1L, "ROLE_USER");
-            Role adminRole = new Role(2L, "ROLE_ADMIN");
-            roleRepo.saveAll(List.of(userRole, adminRole));
+            Role adminRole = new Role(com.app.config.AppConstants.ADMIN_ID, "ADMIN");
+            Role userRole = new Role(com.app.config.AppConstants.USER_ID, "USER");
+            roleRepo.saveAll(List.of(adminRole, userRole));
         }
 
         // categories + products
@@ -126,9 +131,10 @@ public class SeederService {
             user.setLastName("SeedAdminUser");
             user.setEmail("user@example.com");
             user.setMobileNumber("1234567890");
-            user.setPassword("password");
+            user.setPassword(passwordEncoder.encode("password"));
 
-            Role r = roleRepo.findById(1L).orElse(new Role(1L, "ROLE_USER"));
+            Role r = roleRepo.findById(com.app.config.AppConstants.USER_ID)
+                .orElse(new Role(com.app.config.AppConstants.USER_ID, "USER"));
             Set<Role> roles = new HashSet<>();
             roles.add(r);
             user.setRoles(roles);
@@ -166,17 +172,29 @@ public class SeederService {
                 OrderItem oi = new OrderItem();
                 oi.setProduct(prod);
                 oi.setQuantity(1);
-                oi.setDiscount(prod.getDiscount());
-                oi.setOrderedProductPrice(prod.getPrice());
+                // product.getDiscount() is percentage; compute amount and final unit price
+                double perUnitProdDiscount = (prod.getDiscount() * 0.01) * prod.getPrice();
+                oi.setDiscount(perUnitProdDiscount);
+                double finalUnitPrice = prod.getPrice() - perUnitProdDiscount;
+                oi.setOrderedProductPrice(finalUnitPrice);
                 oi.setOrder(order);
 
                 order.getOrderItems().add(oi);
-                double total = oi.getOrderedProductPrice() * oi.getQuantity() - oi.getDiscount();
+                double total = finalUnitPrice * oi.getQuantity();
                 order.setTotalAmount(total);
 
                 orderRepo.save(order);
                 orderItemRepo.save(oi);
             }
+        }
+
+        // seed a sample membership code
+        if (membershipRepo.count() == 0) {
+            var m = new com.app.entites.Membership();
+            m.setCode("MEMBER2026");
+            m.setDiscountPercent(10.0);
+            m.setActive(true);
+            membershipRepo.save(m);
         }
 
         return "Database seeding completed";

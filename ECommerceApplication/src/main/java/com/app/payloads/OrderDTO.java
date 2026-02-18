@@ -3,6 +3,7 @@ package com.app.payloads;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import com.app.payloads.AddressDTO;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -18,6 +19,7 @@ public class OrderDTO {
 	private List<OrderItemDTO> orderItems = new ArrayList<>();
 	private LocalDate orderDate;
 	private PaymentDTO payment;
+	private AddressDTO codAddress;
 	private Double totalAmount;
 	private String orderStatus;
 

@@ -22,6 +22,9 @@ import com.app.entites.Product;
 import com.app.exceptions.APIException;
 import com.app.exceptions.ResourceNotFoundException;
 import com.app.payloads.OrderDTO;
+import com.app.payloads.AddressDTO;
+import com.app.entites.Address;
+import com.app.repositories.AddressRepo;
 import com.app.payloads.OrderItemDTO;
 import com.app.payloads.OrderResponse;
 import com.app.repositories.CartItemRepo;
@@ -30,6 +33,8 @@ import com.app.repositories.OrderItemRepo;
 import com.app.repositories.OrderRepo;
 import com.app.repositories.PaymentRepo;
 import com.app.repositories.UserRepo;
+import com.app.services.MembershipService;
+import com.app.repositories.MembershipRepo;
 
 import jakarta.transaction.Transactional;
 
@@ -53,6 +58,9 @@ public class OrderServiceImpl implements OrderService {
 	public OrderItemRepo orderItemRepo;
 
 	@Autowired
+	public MembershipService membershipService;
+
+	@Autowired
 	public CartItemRepo cartItemRepo;
 
 	@Autowired
@@ -64,8 +72,11 @@ public class OrderServiceImpl implements OrderService {
 	@Autowired
 	public ModelMapper modelMapper;
 
+	@Autowired
+	public AddressRepo addressRepo;
+
 	@Override
-	public OrderDTO placeOrder(String email, Long cartId, String paymentMethod) {
+	public OrderDTO placeOrder(String email, Long cartId, String paymentMethod, AddressDTO codAddressDTO, String membershipCode) {
 
 		Cart cart = cartRepo.findCartByEmailAndCartId(email, cartId);
 
@@ -78,7 +89,21 @@ public class OrderServiceImpl implements OrderService {
 		order.setEmail(email);
 		order.setOrderDate(LocalDate.now());
 
-		order.setTotalAmount(cart.getTotalPrice());
+		// Default total is cart total. If membership code is provided and valid,
+		// we apply member discount to each item and override any product discount.
+		double orderTotal = cart.getTotalPrice();
+
+		Double memberPercent = null;
+		if (membershipCode != null && !membershipCode.trim().isEmpty()) {
+			var membershipOpt = membershipService.findByCode(membershipCode);
+			if (membershipOpt.isEmpty() || membershipOpt.get().getActive() == null || !membershipOpt.get().getActive()) {
+				throw new APIException("Invalid or inactive membership code");
+			}
+			memberPercent = membershipOpt.get().getDiscountPercent();
+			if (memberPercent == null) memberPercent = 0.0;
+			// we'll recompute orderTotal below
+			orderTotal = 0.0;
+		}
 		order.setOrderStatus("Order Accepted !");
 
 		Payment payment = new Payment();
@@ -88,6 +113,42 @@ public class OrderServiceImpl implements OrderService {
 		payment = paymentRepo.save(payment);
 
 		order.setPayment(payment);
+
+		// If payment method is COD, require a full COD address
+		if (paymentMethod != null && paymentMethod.equalsIgnoreCase("COD")) {
+			if (codAddressDTO == null) {
+				throw new APIException("Full COD address is required for Cash on Delivery");
+			}
+			// basic validation
+			if (codAddressDTO.getCountry() == null || codAddressDTO.getCountry().trim().isEmpty()
+					|| codAddressDTO.getState() == null || codAddressDTO.getState().trim().isEmpty()
+					|| codAddressDTO.getCity() == null || codAddressDTO.getCity().trim().isEmpty()
+					|| codAddressDTO.getPincode() == null || codAddressDTO.getPincode().trim().isEmpty()
+					|| codAddressDTO.getStreet() == null || codAddressDTO.getStreet().trim().isEmpty()
+					|| codAddressDTO.getBuildingName() == null || codAddressDTO.getBuildingName().trim().isEmpty()) {
+				throw new APIException("Full COD address is required for Cash on Delivery");
+			}
+
+			Address existing = addressRepo.findByCountryAndStateAndCityAndPincodeAndStreetAndBuildingName(
+					codAddressDTO.getCountry(), codAddressDTO.getState(), codAddressDTO.getCity(),
+					codAddressDTO.getPincode(), codAddressDTO.getStreet(), codAddressDTO.getBuildingName());
+
+			Address savedCodAddress;
+			if (existing != null) {
+				savedCodAddress = existing;
+			} else {
+				Address newAddr = new Address();
+				newAddr.setCountry(codAddressDTO.getCountry());
+				newAddr.setState(codAddressDTO.getState());
+				newAddr.setCity(codAddressDTO.getCity());
+				newAddr.setPincode(codAddressDTO.getPincode());
+				newAddr.setStreet(codAddressDTO.getStreet());
+				newAddr.setBuildingName(codAddressDTO.getBuildingName());
+				savedCodAddress = addressRepo.save(newAddr);
+			}
+
+			order.setCodAddress(savedCodAddress);
+		}
 
 		Order savedOrder = orderRepo.save(order);
 
@@ -104,14 +165,31 @@ public class OrderServiceImpl implements OrderService {
 
 			orderItem.setProduct(cartItem.getProduct());
 			orderItem.setQuantity(cartItem.getQuantity());
-			orderItem.setDiscount(cartItem.getDiscount());
-			orderItem.setOrderedProductPrice(cartItem.getProductPrice());
+			// If member discount applies, use member discount amount per unit and
+			// ignore product discount. Otherwise keep cart item's discount.
+			if (memberPercent != null) {
+				// When membership is used, ignore any product-level discount.
+				// Apply membership percent on the product base price (not specialPrice).
+				double unitBasePrice = cartItem.getProduct().getPrice();
+				double perUnitDiscount = unitBasePrice * (memberPercent / 100.0);
+				orderItem.setDiscount(perUnitDiscount);
+				// store the final product price (unit price after membership discount)
+				double finalUnitPrice = unitBasePrice - perUnitDiscount;
+				orderItem.setOrderedProductPrice(finalUnitPrice);
+				orderTotal += finalUnitPrice * cartItem.getQuantity();
+			} else {
+				orderItem.setDiscount(cartItem.getDiscount());
+				orderItem.setOrderedProductPrice(cartItem.getProductPrice());
+			}
 			orderItem.setOrder(savedOrder);
 
 			orderItems.add(orderItem);
 		}
 
 		orderItems = orderItemRepo.saveAll(orderItems);
+
+		// persist computed total
+		order.setTotalAmount(orderTotal);
 
 		cart.getCartItems().forEach(item -> {
 			int quantity = item.getQuantity();

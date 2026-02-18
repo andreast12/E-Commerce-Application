@@ -42,7 +42,11 @@ public class Order {
 	@OneToOne
 	@JoinColumn(name = "payment_id")
 	private Payment payment;
-	
+    
+	@OneToOne
+	@JoinColumn(name = "cod_address_id")
+	private Address codAddress;
+
 	private Double totalAmount;
 	private String orderStatus;
 }
