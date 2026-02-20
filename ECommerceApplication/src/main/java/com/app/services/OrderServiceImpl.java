@@ -229,6 +229,55 @@ public class OrderServiceImpl implements OrderService {
 	}
 
 	@Override
+	public List<OrderDTO> getOrdersByUserWithFilters(String email, String startDate, String endDate,
+			String paymentMethod, String orderStatus, Boolean hasDiscount) {
+
+		List<Order> orders = orderRepo.findAllByEmail(email);
+
+		if (orders.isEmpty()) {
+			throw new APIException("No orders placed yet by the user with email: " + email);
+		}
+
+		java.util.stream.Stream<Order> stream = orders.stream();
+
+		if (startDate != null) {
+			LocalDate start = LocalDate.parse(startDate);
+			stream = stream.filter(order -> !order.getOrderDate().isBefore(start));
+		}
+
+		if (endDate != null) {
+			LocalDate end = LocalDate.parse(endDate);
+			stream = stream.filter(order -> !order.getOrderDate().isAfter(end));
+		}
+
+		if (paymentMethod != null) {
+			stream = stream.filter(order -> order.getPayment() != null
+					&& paymentMethod.equalsIgnoreCase(order.getPayment().getPaymentMethod()));
+		}
+
+		if (orderStatus != null) {
+			stream = stream.filter(order -> orderStatus.equalsIgnoreCase(order.getOrderStatus()));
+		}
+
+		if (hasDiscount != null) {
+			if (hasDiscount) {
+				stream = stream.filter(order -> order.getDiscountName() != null);
+			} else {
+				stream = stream.filter(order -> order.getDiscountName() == null);
+			}
+		}
+
+		List<OrderDTO> orderDTOs = stream.map(order -> modelMapper.map(order, OrderDTO.class))
+				.collect(Collectors.toList());
+
+		if (orderDTOs.isEmpty()) {
+			throw new APIException("No orders found matching the given filters for user with email: " + email);
+		}
+
+		return orderDTOs;
+	}
+
+	@Override
 	public OrderDTO updateOrder(String email, Long orderId, String orderStatus) {
 
 		Order order = orderRepo.findOrderByEmailAndOrderId(email, orderId);

@@ -65,6 +65,20 @@ public class OrderController {
 		return new ResponseEntity<OrderDTO>(order, HttpStatus.FOUND);
 	}
 
+	@GetMapping("public/users/{email}/orders/filter")
+	public ResponseEntity<List<OrderDTO>> getOrdersByUserWithFilters(@PathVariable String email,
+			@RequestParam(required = false) String startDate,
+			@RequestParam(required = false) String endDate,
+			@RequestParam(required = false) String paymentMethod,
+			@RequestParam(required = false) String orderStatus,
+			@RequestParam(required = false) Boolean hasDiscount) {
+
+		List<OrderDTO> orders = orderService.getOrdersByUserWithFilters(email, startDate, endDate,
+				paymentMethod, orderStatus, hasDiscount);
+
+		return new ResponseEntity<List<OrderDTO>>(orders, HttpStatus.FOUND);
+	}
+
 	@PutMapping("admin/users/{email}/orders/{orderId}/orderStatus/{orderStatus}")
 	public ResponseEntity<OrderDTO> updateOrderByUser(@PathVariable String email, @PathVariable Long orderId, @PathVariable String orderStatus) {
 		OrderDTO order = orderService.updateOrder(email, orderId, orderStatus);

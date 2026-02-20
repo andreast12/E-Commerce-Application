@@ -17,4 +17,7 @@ public interface OrderService {
 	OrderResponse getAllOrders(Integer pageNumber, Integer pageSize, String sortBy, String sortOrder);
 
 	OrderDTO updateOrder(String email, Long orderId, String orderStatus);
+
+	List<OrderDTO> getOrdersByUserWithFilters(String email, String startDate, String endDate,
+			String paymentMethod, String orderStatus, Boolean hasDiscount);
 }
