@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.app.config.AppConstants;
+import com.app.payloads.CartDTO;
 import com.app.payloads.CreditCardRequest;
 import com.app.payloads.OrderDTO;
 import com.app.payloads.OrderResponse;
@@ -84,6 +85,12 @@ public class OrderController {
 		OrderDTO order = orderService.updateOrder(email, orderId, orderStatus);
 
 		return new ResponseEntity<OrderDTO>(order, HttpStatus.OK);
+	}
+
+	@PostMapping("/public/users/{email}/orders/{orderId}/repeat")
+	public ResponseEntity<CartDTO> repeatOrder(@PathVariable String email, @PathVariable Long orderId) {
+		CartDTO cartDTO = orderService.repeatOrder(email, orderId);
+		return new ResponseEntity<>(cartDTO, HttpStatus.CREATED);
 	}
 
 }

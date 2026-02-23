@@ -2,6 +2,7 @@ package com.app.services;
 
 import java.util.List;
 
+import com.app.payloads.CartDTO;
 import com.app.payloads.CreditCardRequest;
 import com.app.payloads.OrderDTO;
 import com.app.payloads.OrderResponse;
@@ -20,4 +21,6 @@ public interface OrderService {
 
 	List<OrderDTO> getOrdersByUserWithFilters(String email, String startDate, String endDate,
 			String paymentMethod, String orderStatus, Boolean hasDiscount);
+
+	CartDTO repeatOrder(String email, Long orderId);
 }
