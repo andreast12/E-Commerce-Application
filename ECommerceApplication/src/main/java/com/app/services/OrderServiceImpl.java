@@ -22,6 +22,7 @@ import com.app.entites.Payment;
 import com.app.entites.Product;
 import com.app.exceptions.APIException;
 import com.app.exceptions.ResourceNotFoundException;
+import com.app.payloads.CartDTO;
 import com.app.payloads.CreditCardRequest;
 import com.app.payloads.OrderDTO;
 import com.app.payloads.OrderItemDTO;
@@ -289,6 +290,41 @@ public class OrderServiceImpl implements OrderService {
 		order.setOrderStatus(orderStatus);
 
 		return modelMapper.map(order, OrderDTO.class);
+	}
+
+	@Override
+	public CartDTO repeatOrder(String email, Long orderId) {
+		Order order = orderRepo.findOrderByEmailAndOrderId(email, orderId);
+		if (order == null) {
+			throw new ResourceNotFoundException("Order", "orderId", orderId);
+		}
+
+		com.app.entites.User user = userRepo.findByEmail(email)
+			.orElseThrow(() -> new ResourceNotFoundException("User", "email", email));
+
+		Cart cart = user.getCart();
+		if (cart == null) {
+			throw new APIException("No cart found for user: " + email);
+		}
+
+		for (OrderItem item : order.getOrderItems()) {
+			Product product = item.getProduct();
+			if (product == null) continue;
+
+			Long productId = product.getProductId();
+
+			if (cartItemRepo.findCartItemByProductIdAndCartId(cart.getCartId(), productId) != null) {
+				continue; // already in cart
+			}
+
+			if (product.getQuantity() == 0 || product.getQuantity() < item.getQuantity()) {
+				continue; // out of stock or insufficient quantity
+			}
+
+			cartService.addProductToCart(cart.getCartId(), productId, item.getQuantity());
+		}
+
+		return cartService.getCart(email, cart.getCartId());
 	}
 
 }
